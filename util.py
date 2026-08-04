@@ -104,7 +104,7 @@ def parse_jsonl(jsonl_path, max_lines=150):
     user_turns = 0
     assistant_turns = 0
 
-    with open(jsonl_path) as f:
+    with open(jsonl_path, encoding="utf-8") as f:
         for i, line in enumerate(f):
             if max_lines and i > max_lines:
                 break
@@ -132,7 +132,7 @@ def parse_jsonl(jsonl_path, max_lines=150):
 def run_fzf(cmd, fzf_input):
     """Run fzf with the given command and input. Returns selected output or None."""
     try:
-        result = subprocess.run(cmd, input=fzf_input, capture_output=True, text=True)
+        result = subprocess.run(cmd, input=fzf_input, capture_output=True, text=True, check=False)
     except FileNotFoundError:
         print("Error: fzf is not installed.", file=sys.stderr)
         print("Install: pacman -S fzf / apt install fzf / brew install fzf", file=sys.stderr)
@@ -152,7 +152,7 @@ def parse_jsonl_usage(jsonl_path):
     seen_ids = set()
     records = []
 
-    with open(jsonl_path) as f:
+    with open(jsonl_path, encoding="utf-8") as f:
         for line in f:
             try:
                 obj = json.loads(line)

@@ -13,12 +13,12 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from util import (
+from util import (  # pylint: disable=wrong-import-position
     CLAUDE_PROJECTS_DIR, BOLD, BLUE, CYAN, DIM, RED, RESET, YELLOW,
     decode_slug, parse_jsonl, run_fzf, shorten_path,
     estimate_cost, parse_jsonl_usage,
 )
-from pricing import get_pricing
+from pricing import get_pricing  # pylint: disable=wrong-import-position
 
 
 def scan_projects():
@@ -231,7 +231,7 @@ def run_clean():
         print("Aborted.")
         return
 
-    import subprocess
+    import subprocess  # pylint: disable=import-outside-toplevel
     for slug, project_path, display in to_purge:
         if not project_path:
             print(f"  Skipping {slug} (could not decode path)", file=sys.stderr)
@@ -261,9 +261,9 @@ def list_sessions(sessions):
         print(f"{date_str:<18} {size_str:>6}  {display_path:<35}  {title}")
 
 
-def run_stats(project_filter=None, month_filter=None, json_output=False):
+def run_stats(project_filter=None, month_filter=None, json_output=False):  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
     """Show monthly usage summary with cost estimates."""
-    from collections import defaultdict
+    from collections import defaultdict  # pylint: disable=import-outside-toplevel
 
     projects = scan_projects()
     all_records = []
@@ -350,7 +350,7 @@ def run_stats(project_filter=None, month_filter=None, json_output=False):
 
     if has_pricing:
         total_cost = 0.0
-        hdr = f"{'Month':<11} {'Sessions':>8}  {'Turns':>6}  {'Input Tokens':>13}  {'Output Tokens':>14}  {'Cache Read':>13}   {'Est. Cost':>9}"
+        hdr = f"{'Month':<11} {'Sessions':>8}  {'Turns':>6}  {'Input Tokens':>13}  {'Output Tokens':>14}  {'Cache Read':>13}   {'Est. Cost':>9}"  # pylint: disable=line-too-long
         print(hdr)
         print(f"{'─' * 11} {'─' * 8}  {'─' * 6}  {'─' * 13}  {'─' * 14}  {'─' * 13}   {'─' * 9}")
         for month in months:
@@ -364,7 +364,7 @@ def run_stats(project_filter=None, month_filter=None, json_output=False):
         print(f"{' ' * 73}{'─' * 9}")
         print(f"{' ' * 66}Total: ${total_cost:>8.2f}")
     else:
-        hdr = f"{'Month':<11} {'Sessions':>8}  {'Turns':>6}  {'Input Tokens':>13}  {'Output Tokens':>14}  {'Cache Read':>13}"
+        hdr = f"{'Month':<11} {'Sessions':>8}  {'Turns':>6}  {'Input Tokens':>13}  {'Output Tokens':>14}  {'Cache Read':>13}"  # pylint: disable=line-too-long
         print(hdr)
         print(f"{'─' * 11} {'─' * 8}  {'─' * 6}  {'─' * 13}  {'─' * 14}  {'─' * 13}")
         for month in months:
@@ -378,9 +378,10 @@ def run_stats(project_filter=None, month_filter=None, json_output=False):
 
 
 def main():
+    """CLI entry point."""
     parser = argparse.ArgumentParser(
         prog="csm",
-        description="Agent Session Manager - browse and resume Claude Code sessions across all projects",
+        description="Agent Session Manager - browse and resume Claude Code sessions across all projects",  # pylint: disable=line-too-long
     )
     parser.add_argument("search", nargs="?", default=None,
                         help="initial search query for fzf picker")

@@ -37,7 +37,7 @@ def _load_provider():
     if not CONFIG_PATH.exists():
         return DEFAULT_PROVIDER
     try:
-        with open(CONFIG_PATH) as f:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
             data = json.load(f)
         return data.get("pricing_provider", DEFAULT_PROVIDER)
     except (json.JSONDecodeError, OSError):
@@ -186,7 +186,7 @@ def _read_cache(models):
     if not CACHE_PATH.exists():
         return None
     try:
-        with open(CACHE_PATH) as f:
+        with open(CACHE_PATH, encoding="utf-8") as f:
             cache = json.load(f)
     except (json.JSONDecodeError, OSError):
         return None
@@ -206,7 +206,7 @@ def _write_cache(pricing):
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     cache = {"fetched_at": time.time(), "pricing": pricing}
     try:
-        with open(CACHE_PATH, "w") as f:
+        with open(CACHE_PATH, "w", encoding="utf-8") as f:
             json.dump(cache, f, indent=2)
     except OSError:
         pass
