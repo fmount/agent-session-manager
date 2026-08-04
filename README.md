@@ -40,8 +40,10 @@ csm -l -n 10        # last 10 sessions
 csm -p glance       # filter by project path
 csm -a              # include orphaned sessions (deleted project dirs)
 csm --clean         # pick projects to purge (fzf multi-select with TAB)
-csm --stats         # monthly usage summary with cost estimates
-csm --stats -p glance  # stats for a single project
+csm --stats              # monthly usage summary with cost estimates
+csm --stats -p glance    # stats for a single project
+csm --stats -m 2026-07   # stats for a single month
+csm --stats -m 2026-07 -p glance  # combine both filters
 ```
 
 ## Stats examples
@@ -79,6 +81,38 @@ locally for 24 hours. Configure the provider in `~/.config/csm/config.json`:
 ```json
 {"pricing_provider": "openrouter"}
 ```
+
+## Statusline integration
+
+Extract the current month's summary into a compact string for tmux,
+polybar, waybar, i3status, or any shell prompt:
+
+```bash
+# one-liner: "csm: 12 sess | 434 turns | $44.18"
+csm --stats -m "$(date +%Y-%m)" 2>/dev/null \
+  | awk '/^[0-9]{4}-[0-9]{2}/ {printf "csm: %s sess | %s turns | %s\n", $2, $3, $NF}'
+```
+
+**tmux** — add to `~/.tmux.conf`:
+
+```tmux
+set -g status-right '#(csm --stats -m "$(date +%%Y-%%m)" 2>/dev/null | awk "/^[0-9]/{printf \"%%s sess | %%s turns | %%s\", \$2, \$3, \$NF}")'
+set -g status-interval 300
+```
+
+**shell prompt (bash/zsh)** — add to `~/.bashrc` or `~/.zshrc`:
+
+```bash
+csm_prompt() {
+  csm --stats -m "$(date +%Y-%m)" 2>/dev/null \
+    | awk '/^[0-9]{4}-[0-9]{2}/ {printf "%s sess | %s", $2, $NF}'
+}
+# bash: PS1='[\u@\h \W $(csm_prompt)]\$ '
+# zsh:  RPROMPT='$(csm_prompt)'
+```
+
+The pricing cache (24h TTL) keeps these fast — no network call on every
+prompt refresh.
 
 ## How it works
 
