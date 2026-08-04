@@ -15,7 +15,9 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from util import (
     CLAUDE_PROJECTS_DIR, BOLD, BLUE, CYAN, DIM, RED, RESET, YELLOW,
     decode_slug, parse_jsonl, run_fzf, shorten_path,
+    estimate_cost, parse_jsonl_usage,
 )
+from pricing import get_pricing
 
 
 def scan_projects():
@@ -258,6 +260,96 @@ def list_sessions(sessions):
         print(f"{date_str:<18} {size_str:>6}  {display_path:<35}  {title}")
 
 
+def run_stats(project_filter=None):
+    """Show monthly usage summary with cost estimates."""
+    from collections import defaultdict
+
+    projects = scan_projects()
+    all_records = []
+    monthly = defaultdict(lambda: {
+        "sessions": set(),
+        "turns": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read": 0,
+        "cost": 0.0,
+    })
+
+    for p in projects:
+        if project_filter:
+            filt = project_filter.lower()
+            if filt not in (p["project_path"] or "").lower() and filt not in p["slug"].lower():
+                continue
+        for jsonl_file in p["jsonl_files"]:
+            try:
+                records = parse_jsonl_usage(str(jsonl_file))
+            except (OSError, PermissionError):
+                continue
+
+            session_id = jsonl_file.stem
+            for r in records:
+                ts = r.get("timestamp", "")
+                if len(ts) >= 7:
+                    month = ts[:7]
+                else:
+                    month = p["newest"].strftime("%Y-%m")
+
+                r["_month"] = month
+                r["_session_id"] = session_id
+                all_records.append(r)
+
+                m = monthly[month]
+                m["sessions"].add(session_id)
+                m["turns"] += 1
+                m["input_tokens"] += r["input_tokens"]
+                m["output_tokens"] += r["output_tokens"]
+                m["cache_read"] += r["cache_read_input_tokens"]
+
+    if not monthly:
+        print("No usage data found.")
+        return
+
+    models = {r["model"] for r in all_records}
+    pricing = get_pricing(models)
+    has_pricing = bool(pricing)
+
+    if has_pricing:
+        for r in all_records:
+            cost = estimate_cost([r], pricing)
+            if cost is not None:
+                monthly[r["_month"]]["cost"] += cost
+
+    months = sorted(monthly.keys(), reverse=True)
+
+    if has_pricing:
+        total_cost = 0.0
+        hdr = f"{'Month':<11} {'Sessions':>8}  {'Turns':>6}  {'Input Tokens':>13}  {'Output Tokens':>14}  {'Cache Read':>13}   {'Est. Cost':>9}"
+        print(hdr)
+        print(f"{'─' * 11} {'─' * 8}  {'─' * 6}  {'─' * 13}  {'─' * 14}  {'─' * 13}   {'─' * 9}")
+        for month in months:
+            m = monthly[month]
+            total_cost += m["cost"]
+            print(
+                f"{month:<11} {len(m['sessions']):>8}  {m['turns']:>6}  "
+                f"{m['input_tokens']:>13,}  {m['output_tokens']:>14,}  "
+                f"{m['cache_read']:>13,}   ${m['cost']:>8.2f}"
+            )
+        print(f"{' ' * 73}{'─' * 9}")
+        print(f"{' ' * 66}Total: ${total_cost:>8.2f}")
+    else:
+        hdr = f"{'Month':<11} {'Sessions':>8}  {'Turns':>6}  {'Input Tokens':>13}  {'Output Tokens':>14}  {'Cache Read':>13}"
+        print(hdr)
+        print(f"{'─' * 11} {'─' * 8}  {'─' * 6}  {'─' * 13}  {'─' * 14}  {'─' * 13}")
+        for month in months:
+            m = monthly[month]
+            print(
+                f"{month:<11} {len(m['sessions']):>8}  {m['turns']:>6}  "
+                f"{m['input_tokens']:>13,}  {m['output_tokens']:>14,}  "
+                f"{m['cache_read']:>13,}"
+            )
+        print("\nCould not fetch pricing (network unavailable). Showing token counts only.")
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="csm",
@@ -275,6 +367,8 @@ def main():
                         help="include orphaned sessions (project dir missing)")
     parser.add_argument("--clean", action="store_true",
                         help="pick projects to purge via fzf (TAB to multi-select)")
+    parser.add_argument("--stats", action="store_true",
+                        help="monthly usage summary with cost estimates")
     parser.add_argument("--preview", type=str, metavar="JSONL_PATH",
                         help=argparse.SUPPRESS)
 
@@ -286,6 +380,10 @@ def main():
 
     if args.clean:
         run_clean()
+        return
+
+    if args.stats:
+        run_stats(project_filter=args.project)
         return
 
     sessions = scan_sessions(include_orphans=args.all)
