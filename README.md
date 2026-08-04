@@ -66,6 +66,13 @@ Month       Sessions   Turns   Input Tokens   Output Tokens     Cache Read   Est
                                                                          ─────────
                                                                   Total: $    7.20
 
+$ csm --stats -m 2026-08
+Month       Sessions   Turns   Input Tokens   Output Tokens     Cache Read   Est. Cost
+─────────── ────────  ──────  ─────────────  ──────────────  ─────────────   ─────────
+2026-08           12     441          3,501         129,403     41,416,491   $   44.93
+                                                                         ─────────
+                                                                  Total: $   44.93
+
 $ csm --stats -p manila
 Month       Sessions   Turns   Input Tokens   Output Tokens     Cache Read   Est. Cost
 ─────────── ────────  ──────  ─────────────  ──────────────  ─────────────   ─────────
