@@ -1,0 +1,317 @@
+#!/usr/bin/env python3
+"""csm - Agent Session Manager
+
+Interactive session picker for Claude Code. Scans all projects for saved
+sessions and lets you resume any of them via fzf.
+"""
+
+import argparse
+import os
+import sys
+from datetime import datetime
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from util import (
+    CLAUDE_PROJECTS_DIR, BOLD, BLUE, CYAN, DIM, RED, RESET, YELLOW,
+    decode_slug, parse_jsonl, run_fzf, shorten_path,
+)
+
+
+def scan_projects():
+    """Scan project directories and return per-project summaries."""
+    if not CLAUDE_PROJECTS_DIR.is_dir():
+        return []
+
+    projects = []
+    for project_dir in CLAUDE_PROJECTS_DIR.iterdir():
+        if not project_dir.is_dir():
+            continue
+        slug = project_dir.name
+        project_path = decode_slug(slug)
+        jsonl_files = list(project_dir.glob("*.jsonl"))
+        if not jsonl_files:
+            continue
+        total_kb = sum(f.stat().st_size for f in jsonl_files) // 1024
+        newest = max(f.stat().st_mtime for f in jsonl_files)
+        projects.append({
+            "slug": slug,
+            "project_path": project_path,
+            "display_path": shorten_path(project_path),
+            "exists": bool(project_path and os.path.isdir(project_path)),
+            "jsonl_files": jsonl_files,
+            "sessions": len(jsonl_files),
+            "total_kb": total_kb,
+            "newest": datetime.fromtimestamp(newest),
+        })
+    projects.sort(key=lambda p: p["newest"], reverse=True)
+    return projects
+
+
+def scan_sessions(include_orphans=False):
+    """Scan all projects and return per-session entries."""
+    sessions = []
+    for p in scan_projects():
+        if not include_orphans and not p["exists"]:
+            continue
+        for jsonl_file in p["jsonl_files"]:
+            try:
+                stat = jsonl_file.stat()
+                meta = parse_jsonl(str(jsonl_file))
+                sessions.append({
+                    "session_id": jsonl_file.stem,
+                    "slug": p["slug"],
+                    "project_path": p["project_path"],
+                    "jsonl_path": str(jsonl_file),
+                    "mtime": datetime.fromtimestamp(stat.st_mtime),
+                    "size_kb": stat.st_size // 1024,
+                    "title": meta["title"],
+                    "first_msg": meta["first_msg"],
+                })
+            except (OSError, PermissionError):
+                continue
+
+    sessions.sort(key=lambda s: s["mtime"], reverse=True)
+    return sessions
+
+
+def show_preview(jsonl_path):
+    """Show detailed session info for fzf preview pane."""
+    path = Path(jsonl_path)
+    if not path.exists():
+        print(f"File not found: {jsonl_path}")
+        return
+
+    session_id = path.stem
+    project_path = decode_slug(path.parent.name)
+    display_path = shorten_path(project_path)
+    stat = path.stat()
+    mtime = datetime.fromtimestamp(stat.st_mtime)
+    exists = os.path.isdir(project_path) if project_path else False
+
+    meta = parse_jsonl(jsonl_path, max_lines=None)
+
+    print(f"{BOLD}Session{RESET}   {session_id}")
+    print(f"{BOLD}Title{RESET}     {meta['title'] or '(untitled)'}")
+    print(f"{BOLD}Project{RESET}   {display_path}")
+    status = f"{CYAN}exists{RESET}" if exists else f"{RED}MISSING{RESET}"
+    print(f"{BOLD}Status{RESET}    {status}")
+    print(f"{BOLD}Modified{RESET}  {mtime.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"{BOLD}Size{RESET}      {stat.st_size // 1024}K")
+    print(f"{BOLD}Turns{RESET}     {meta['user_turns']} user / {meta['assistant_turns']} assistant")
+    print()
+    if meta["first_msg"]:
+        print(f"{DIM}First message:{RESET}")
+        for line in meta["first_msg"].split("\n")[:8]:
+            print(f"  {line}")
+    print()
+    if exists:
+        print(f"{DIM}Resume:{RESET}")
+        print(f"  cd {display_path} && claude --resume {session_id}")
+    else:
+        print(f"{YELLOW}Directory no longer exists.{RESET}")
+        print(f"{DIM}Try:{RESET}  claude --resume {session_id}")
+
+
+def run_session_picker(sessions, query=None):
+    """Open fzf to pick a session. Returns selected session dict or None."""
+    if not sessions:
+        print("No sessions found.", file=sys.stderr)
+        return None
+
+    lines = []
+    for s in sessions:
+        display_path = shorten_path(s["project_path"])
+        date_str = s["mtime"].strftime("%Y-%m-%d %H:%M")
+        short_id = DIM + s["session_id"][:8] + RESET
+        title = s["title"] or s["first_msg"][:60] or "(untitled)"
+        line = (
+            f"{DIM}{date_str}{RESET}\t"
+            f"{BLUE}{display_path}{RESET}\t"
+            f"{BOLD}{title}{RESET}\t"
+            f"{short_id}\t"
+            f"{s['jsonl_path']}"
+        )
+        lines.append(line)
+
+    self_path = os.path.realpath(sys.argv[0])
+    cmd = [
+        "fzf", "--ansi", "--reverse",
+        "--delimiter=\t", "--with-nth=1..4",
+        "--header=Select a session to resume  |  ESC to cancel",
+        f"--preview={self_path} --preview {{5}}",
+        "--preview-window=right:50%:wrap",
+        "--tabstop=4", "--no-mouse",
+    ]
+    if query:
+        cmd.append(f"--query={query}")
+
+    selected = run_fzf(cmd, "\n".join(lines))
+    if not selected:
+        return None
+
+    parts = selected.split("\t")
+    if len(parts) < 5:
+        return None
+
+    jsonl_path = parts[4]
+    return {
+        "session_id": Path(jsonl_path).stem,
+        "project_path": decode_slug(Path(jsonl_path).parent.name),
+        "jsonl_path": jsonl_path,
+    }
+
+
+def resume_session(session):
+    """Resume the selected Claude session by exec-ing into claude."""
+    project_path = session["project_path"]
+    session_id = session["session_id"]
+
+    if not project_path or not os.path.isdir(project_path):
+        print(f"Warning: directory missing: {project_path}", file=sys.stderr)
+        print("Attempting resume from current directory...", file=sys.stderr)
+        os.execvp("claude", ["claude", "--resume", session_id])
+
+    os.chdir(project_path)
+    os.execvp("claude", ["claude", "--resume", session_id])
+
+
+def run_clean():
+    """Open fzf multi-select to pick projects to purge."""
+    projects = scan_projects()
+    if not projects:
+        print("No projects found.", file=sys.stderr)
+        return
+
+    lines = []
+    for p in projects:
+        date_str = p["newest"].strftime("%Y-%m-%d %H:%M")
+        status = f"{RED}ORPHAN{RESET}" if not p["exists"] else f"{DIM}  ok  {RESET}"
+        line = (
+            f"{status}\t"
+            f"{DIM}{date_str}{RESET}\t"
+            f"{p['sessions']:>3} sessions\t"
+            f"{p['total_kb']:>5}K\t"
+            f"{BLUE}{p['display_path']}{RESET}\t"
+            f"{p['slug']}"
+        )
+        lines.append(line)
+
+    cmd = [
+        "fzf", "--ansi", "--reverse", "--multi",
+        "--delimiter=\t", "--with-nth=1..5",
+        "--header=Select projects to purge (TAB to multi-select, ENTER to confirm)",
+    ]
+
+    selected = run_fzf(cmd, "\n".join(lines))
+    if not selected:
+        print("Nothing selected.", file=sys.stderr)
+        return
+
+    to_purge = []
+    for line in selected.split("\n"):
+        parts = line.split("\t")
+        if len(parts) >= 6:
+            slug = parts[5].strip()
+            project_path = decode_slug(slug)
+            to_purge.append((slug, project_path, shorten_path(project_path)))
+
+    if not to_purge:
+        return
+
+    print(f"\nWill purge {len(to_purge)} project(s):")
+    for _, _, display in to_purge:
+        print(f"  {display}")
+
+    answer = input("\nConfirm? [y/N] ").strip().lower()
+    if answer != "y":
+        print("Aborted.")
+        return
+
+    import subprocess
+    for slug, project_path, display in to_purge:
+        if not project_path:
+            print(f"  Skipping {slug} (could not decode path)", file=sys.stderr)
+            continue
+        print(f"Purging {display} ...")
+        subprocess.run(["claude", "project", "purge", "-y", project_path], check=False)
+
+    print("Done.")
+
+
+def list_sessions(sessions):
+    """Print sessions in a plain table."""
+    if not sessions:
+        print("No sessions found.")
+        return
+
+    print(f"{'Date':<18} {'Size':>6}  {'Project':<35}  {'Title'}")
+    print(f"{'-' * 18} {'-' * 6}  {'-' * 35}  {'-' * 40}")
+
+    for s in sessions:
+        display_path = shorten_path(s["project_path"])
+        if len(display_path) > 35:
+            display_path = "..." + display_path[-32:]
+        date_str = s["mtime"].strftime("%Y-%m-%d %H:%M")
+        title = (s["title"] or s["first_msg"][:50] or "(untitled)")[:50]
+        size_str = f"{s['size_kb']}K"
+        print(f"{date_str:<18} {size_str:>6}  {display_path:<35}  {title}")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="csm",
+        description="Agent Session Manager - browse and resume Claude Code sessions across all projects",
+    )
+    parser.add_argument("search", nargs="?", default=None,
+                        help="initial search query for fzf picker")
+    parser.add_argument("-l", "--list", action="store_true",
+                        help="list sessions as plain text (no fzf)")
+    parser.add_argument("-n", "--limit", type=int, default=None,
+                        help="show at most N sessions")
+    parser.add_argument("-p", "--project", type=str, default=None,
+                        help="filter by project path substring")
+    parser.add_argument("-a", "--all", action="store_true",
+                        help="include orphaned sessions (project dir missing)")
+    parser.add_argument("--clean", action="store_true",
+                        help="pick projects to purge via fzf (TAB to multi-select)")
+    parser.add_argument("--preview", type=str, metavar="JSONL_PATH",
+                        help=argparse.SUPPRESS)
+
+    args = parser.parse_args()
+
+    if args.preview:
+        show_preview(args.preview)
+        return
+
+    if args.clean:
+        run_clean()
+        return
+
+    sessions = scan_sessions(include_orphans=args.all)
+
+    if args.project:
+        filt = args.project.lower()
+        sessions = [
+            s for s in sessions
+            if filt in (s["project_path"] or "").lower()
+            or filt in s["slug"].lower()
+            or filt in s["title"].lower()
+        ]
+
+    if args.limit:
+        sessions = sessions[: args.limit]
+
+    if args.list:
+        list_sessions(sessions)
+        return
+
+    selected = run_session_picker(sessions, query=args.search or args.project)
+    if selected:
+        resume_session(selected)
+    else:
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
