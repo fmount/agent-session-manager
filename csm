@@ -260,7 +260,7 @@ def list_sessions(sessions):
         print(f"{date_str:<18} {size_str:>6}  {display_path:<35}  {title}")
 
 
-def run_stats(project_filter=None):
+def run_stats(project_filter=None, month_filter=None):
     """Show monthly usage summary with cost estimates."""
     from collections import defaultdict
 
@@ -304,6 +304,10 @@ def run_stats(project_filter=None):
                 m["input_tokens"] += r["input_tokens"]
                 m["output_tokens"] += r["output_tokens"]
                 m["cache_read"] += r["cache_read_input_tokens"]
+
+    if month_filter:
+        monthly = {k: v for k, v in monthly.items() if k == month_filter}
+        all_records = [r for r in all_records if r["_month"] == month_filter]
 
     if not monthly:
         print("No usage data found.")
@@ -369,6 +373,9 @@ def main():
                         help="pick projects to purge via fzf (TAB to multi-select)")
     parser.add_argument("--stats", action="store_true",
                         help="monthly usage summary with cost estimates")
+    parser.add_argument("-m", "--month", type=str, default=None,
+                        metavar="YYYY-MM",
+                        help="filter stats to a single month (e.g. 2026-07)")
     parser.add_argument("--preview", type=str, metavar="JSONL_PATH",
                         help=argparse.SUPPRESS)
 
@@ -383,7 +390,7 @@ def main():
         return
 
     if args.stats:
-        run_stats(project_filter=args.project)
+        run_stats(project_filter=args.project, month_filter=args.month)
         return
 
     sessions = scan_sessions(include_orphans=args.all)
