@@ -1,4 +1,4 @@
-# csm — Agent Session Manager
+# csm - Agent Session Manager
 
 Browse and resume AI coding agent sessions from any directory.
 
@@ -40,6 +40,44 @@ csm -l -n 10        # last 10 sessions
 csm -p glance       # filter by project path
 csm -a              # include orphaned sessions (deleted project dirs)
 csm --clean         # pick projects to purge (fzf multi-select with TAB)
+csm --stats         # monthly usage summary with cost estimates
+csm --stats -p glance  # stats for a single project
+```
+
+## Stats examples
+
+```
+$ csm --stats
+Month       Sessions   Turns   Input Tokens   Output Tokens     Cache Read   Est. Cost
+─────────── ────────  ──────  ─────────────  ──────────────  ─────────────   ─────────
+2026-08           12     406          3,448         122,343     36,609,975   $   40.78
+2026-07           91    1738         17,359         738,180    129,342,771   $  173.16
+2026-06            2     155            526          74,304     19,666,609   $   29.42
+                                                                         ─────────
+                                                                  Total: $  243.36
+
+$ csm --stats -p glance
+Month       Sessions   Turns   Input Tokens   Output Tokens     Cache Read   Est. Cost
+─────────── ────────  ──────  ─────────────  ──────────────  ─────────────   ─────────
+2026-08            1      52             70          15,086      4,193,177   $    4.08
+2026-07            1      33             53           6,837      1,838,442   $    3.12
+                                                                         ─────────
+                                                                  Total: $    7.20
+
+$ csm --stats -p manila
+Month       Sessions   Turns   Input Tokens   Output Tokens     Cache Read   Est. Cost
+─────────── ────────  ──────  ─────────────  ──────────────  ─────────────   ─────────
+2026-07            3     114            583          33,635      8,244,444   $    6.99
+                                                                         ─────────
+                                                                  Total: $    6.99
+```
+
+Pricing is fetched dynamically from [OpenRouter](https://openrouter.ai/docs/guides/overview/models)
+(primary) or [LiteLLM](https://github.com/BerriAI/litellm) (fallback) and cached
+locally for 24 hours. Configure the provider in `~/.config/csm/config.json`:
+
+```json
+{"pricing_provider": "openrouter"}
 ```
 
 ## How it works

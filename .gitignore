@@ -1,5 +1,4 @@
 __pycache__/
 *.pyc
 *.pyo
-config.json
 stats.patch

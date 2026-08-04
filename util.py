@@ -142,3 +142,63 @@ def run_fzf(cmd, fzf_input):
         return None
 
     return result.stdout.strip()
+
+
+def parse_jsonl_usage(jsonl_path):
+    """Parse usage/token data from a session JSONL file.
+
+    Deduplicates by message.id and excludes <synthetic> model records.
+    """
+    seen_ids = set()
+    records = []
+
+    with open(jsonl_path) as f:
+        for line in f:
+            try:
+                obj = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+            if obj.get("type") != "assistant":
+                continue
+
+            msg = obj.get("message", {})
+            msg_id = msg.get("id")
+            if not msg_id or msg_id in seen_ids:
+                continue
+            seen_ids.add(msg_id)
+
+            model = msg.get("model", "")
+            if model == "<synthetic>":
+                continue
+
+            usage = msg.get("usage", {})
+            if not usage:
+                continue
+
+            records.append({
+                "model": model,
+                "timestamp": obj.get("timestamp", ""),
+                "input_tokens": usage.get("input_tokens", 0),
+                "output_tokens": usage.get("output_tokens", 0),
+                "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
+                "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
+            })
+
+    return records
+
+
+def estimate_cost(records, pricing):
+    """Estimate USD cost from usage records and a pricing dict. Returns None if no pricing."""
+    if not pricing:
+        return None
+    total = 0.0
+    for r in records:
+        p = pricing.get(r["model"])
+        if not p:
+            continue
+        total += r["input_tokens"] * p.get("input", 0) / 1_000_000
+        total += r["output_tokens"] * p.get("output", 0) / 1_000_000
+        total += r["cache_creation_input_tokens"] * p.get("cache_create", 0) / 1_000_000
+        total += r["cache_read_input_tokens"] * p.get("cache_read", 0) / 1_000_000
+    return total
