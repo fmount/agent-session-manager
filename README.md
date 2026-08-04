@@ -44,6 +44,7 @@ csm --stats              # monthly usage summary with cost estimates
 csm --stats -p glance    # stats for a single project
 csm --stats -m 2026-07   # stats for a single month
 csm --stats -m 2026-07 -p glance  # combine both filters
+csm --stats --json -m 2026-08    # JSON output for scripts
 ```
 
 ## Stats examples
@@ -72,6 +73,22 @@ Month       Sessions   Turns   Input Tokens   Output Tokens     Cache Read   Est
 2026-07            3     114            583          33,635      8,244,444   $    6.99
                                                                          ─────────
                                                                   Total: $    6.99
+
+$ csm --stats --json -m 2026-08
+{
+  "months": [
+    {
+      "month": "2026-08",
+      "sessions": 12,
+      "turns": 462,
+      "input_tokens": 3530,
+      "output_tokens": 134559,
+      "cache_read": 43130171,
+      "cost": 46.01
+    }
+  ],
+  "total_cost": 46.01
+}
 ```
 
 Pricing is fetched dynamically from [OpenRouter](https://openrouter.ai/docs/guides/overview/models)
